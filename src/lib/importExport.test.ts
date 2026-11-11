@@ -9,6 +9,28 @@ const ok = (json: unknown) => {
   return r.value;
 };
 
+describe('ChatGPT 카드 형식', () => {
+  it('cards를 단어장으로, 문장 카드는 번역장에도 넣는다', () => {
+    const v = ok({
+      version: 1,
+      cards: [
+        { id: '01', korean: '공간', japanese: '空間', hiragana: 'くうかん', pronunciation: '쿠우칸' },
+        { id: '05', korean: '오랜만에', japanese: '久しぶりに', hiragana: 'ひさしぶりに', pronunciation: '히사시부리니' },
+        { id: '11', korean: '뭐 하고 있어?', japanese: '何してる？', hiragana: 'なにしてる？', pronunciation: '나니시테루?' },
+        { id: '16', korean: '같이 가자', japanese: '一緒に行こう', hiragana: 'いっしょにいこう', pronunciation: '잇쇼니 이코' },
+        { id: '20', korean: '조심히 들어가', japanese: '気をつけて帰ってね', hiragana: 'きをつけてかえってね', pronunciation: '키오 츠케테 카엣테네' },
+      ],
+    });
+    expect(v.words).toHaveLength(5);
+    expect(v.words[0]).toMatchObject({ japanese: '空間', reading: 'くうかん', meaning: '공간', memo: '발음: 쿠우칸', tags: ['ChatGPT'] });
+    expect(v.translations.map((t) => t.source)).toEqual(['뭐 하고 있어?', '같이 가자', '조심히 들어가']);
+  });
+
+  it('카드에 빈 칸이 있으면 위치와 함께 거부한다', () => {
+    expect(parseImport(JSON.stringify({ cards: [{ korean: '', japanese: '犬' }] }), NOW).ok).toBe(false);
+  });
+});
+
 describe('parseImport', () => {
   it('JSON 문법 오류를 거부한다', () => {
     expect(parseImport('{oops', NOW).ok).toBe(false);

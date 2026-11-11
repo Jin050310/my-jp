@@ -34,6 +34,36 @@ function dateOf(v: unknown, fallback: string): string {
   return fallback;
 }
 
+/** 회화 문장으로 볼지: type 지정이 있으면 따르고, 없으면 한국어가 물음표/반말·존댓말 어미로 끝나는지로 판단 */
+const isSentence = (c: Record<string, unknown>, ko: string) =>
+  c.type === 'sentence' ? true : c.type === 'word' ? false : /[?？!！]$|[어아야자요지네해가]$/.test(ko);
+
+/**
+ * ChatGPT 카드 형식 { cards: [{ korean, japanese, hiragana, pronunciation }] } → 앱 형식.
+ * 모든 카드는 단어장에, 문장으로 보이는 카드는 번역장(한→일)에도 넣는다.
+ * 잘못된 칸은 그대로 넘겨서 아래 검증에서 위치와 함께 오류로 보여 준다.
+ */
+function cardsToAppFormat(cards: unknown[]): Record<string, unknown> {
+  const words: unknown[] = [];
+  const translations: unknown[] = [];
+  for (const c of cards) {
+    if (!isObj(c)) {
+      words.push(c);
+      continue;
+    }
+    const ko = typeof c.korean === 'string' ? c.korean.trim() : c.korean;
+    const reading = c.hiragana ?? c.reading;
+    const pron = typeof c.pronunciation === 'string' && c.pronunciation.trim() ? `발음: ${c.pronunciation.trim()}` : '';
+    const tags = c.tags ?? ['ChatGPT'];
+    words.push({ japanese: c.japanese, reading, meaning: ko, exampleJa: c.exampleJa, exampleKo: c.exampleKo, memo: c.memo ?? pron, tags });
+    if (typeof ko === 'string' && typeof c.japanese === 'string' && c.japanese.trim() && isSentence(c, ko)) {
+      const r = typeof reading === 'string' && reading.trim() && reading.trim() !== c.japanese.trim() ? `읽기: ${reading.trim()}` : '';
+      translations.push({ direction: 'ko-ja', source: ko, target: c.japanese, memo: [r, pron].filter(Boolean).join('\n'), tags });
+    }
+  }
+  return { words, translations };
+}
+
 export function parseImport(text: string, now: string = new Date().toISOString()): ParseResult {
   let raw: unknown;
   try {
@@ -47,6 +77,10 @@ export function parseImport(text: string, now: string = new Date().toISOString()
   if (raw.schemaVersion !== undefined && raw.schemaVersion !== 1) {
     return { ok: false, errors: [`지원하지 않는 schemaVersion(${String(raw.schemaVersion)})이에요. 1만 지원해요.`] };
   }
+  if (Array.isArray(raw.cards) && raw.words === undefined && raw.translations === undefined) {
+    raw = cardsToAppFormat(raw.cards);
+  }
+  if (!isObj(raw)) return { ok: false, errors: ['형식을 읽지 못했어요.'] };
   if (raw.words === undefined && raw.translations === undefined) {
     return { ok: false, errors: ['"words" 또는 "translations" 배열이 하나도 없어요.'] };
   }
