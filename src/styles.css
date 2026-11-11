@@ -165,3 +165,9 @@ button.chip { cursor: pointer; min-height: 32px; }
 .toast.error { background: var(--bad); }
 .toast .btn.link { color: #ffd9dd; }
 @media (min-width: 641px) { .toast { bottom: 1.5rem; } }
+
+/* 번역기 */
+.check { display: flex; gap: 0.5rem; align-items: center; cursor: pointer; }
+.check input { width: auto; min-height: 0; width: 1.1rem; height: 1.1rem; }
+.ai-row { padding: 0.6rem 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.ai-row:first-child { border-top: 0; padding-top: 0; }

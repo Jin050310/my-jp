@@ -80,7 +80,7 @@ export function DataPage() {
 
       <div className="card">
         <h2>가져오기</h2>
-        <p className="muted">내보내기로 만든 파일이나, 아래 형식에 맞춘 JSON(예: ChatGPT가 정리해 준 단어 목록)을 가져올 수 있어요.</p>
+        <p className="muted">백업해 둔 파일을 복원하거나 다른 기기의 데이터를 옮길 때 써요. (API 키는 백업 파일에 들어가지 않아요.)</p>
         <input ref={fileRef} type="file" accept="application/json,.json" onChange={onFile} hidden />
         <div className="row">
           <button className="btn" onClick={() => fileRef.current?.click()}>JSON 파일 선택</button>

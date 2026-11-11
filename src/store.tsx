@@ -22,6 +22,8 @@ interface Store {
   removeTranslation: (id: string) => Promise<void>;
   setWrongIds: (ids: string[]) => Promise<void>;
   replaceAll: (d: AppData) => Promise<boolean>;
+  /** 여러 항목을 한 번에 추가. ID가 이미 있으면 건너뜀. 실패 시 null */
+  addMany: (words: Word[], translations: Translation[]) => Promise<{ words: number; translations: number } | null>;
 }
 
 const Ctx = createContext<Store | null>(null);
@@ -114,6 +116,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         await run(() => repository.setWrongWordIds(ids), (d) => ({ ...d, wrongWordIds: ids }));
       },
       replaceAll: (d) => run(() => repository.replaceAll(d), () => d),
+      addMany: async (words, translations) => {
+        const cur = dataRef.current;
+        const wIds = new Set(cur.words.map((x) => x.id));
+        const tIds = new Set(cur.translations.map((x) => x.id));
+        const newW = words.filter((x) => !wIds.has(x.id) && wIds.add(x.id));
+        const newT = translations.filter((x) => !tIds.has(x.id) && tIds.add(x.id));
+        if (!newW.length && !newT.length) return { words: 0, translations: 0 };
+        const next: AppData = { ...cur, words: [...cur.words, ...newW], translations: [...cur.translations, ...newT] };
+        const ok = await run(() => repository.replaceAll(next), (d) => ({
+          ...d,
+          words: [...d.words, ...newW.filter((x) => !d.words.some((y) => y.id === x.id))],
+          translations: [...d.translations, ...newT.filter((x) => !d.translations.some((y) => y.id === x.id))],
+        }));
+        return ok ? { words: newW.length, translations: newT.length } : null;
+      },
     };
     return store;
   }, [data, ready, loadError, toast, dismissToast, notify, run]);

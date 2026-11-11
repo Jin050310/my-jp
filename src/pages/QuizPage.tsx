@@ -2,10 +2,15 @@ import { useMemo, useState } from 'react';
 import { EmptyState } from '../components/common';
 import { normalize } from '../lib/text';
 import { useStore } from '../store';
-import type { Word } from '../types';
+import { TAG_RELATED } from '../lib/ai';
+import type { Translation, Word } from '../types';
 
-type Pool = 'all' | 'wrong';
-type Kind = 'ko2ja' | 'ja2ko';
+type Pool = 'all' | 'wrong' | 'related';
+type Kind = 'ko2ja' | 'ja2ko' | 'sent';
+
+/** 문장 퀴즈: 한국어 쪽을 문제로, 일본어 쪽을 정답으로 */
+const sides = (t: Translation) =>
+  t.direction === 'ko-ja' ? { ko: t.source, ja: t.target } : { ko: t.target, ja: t.source };
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -19,7 +24,7 @@ function shuffle<T>(arr: T[]): T[] {
 interface Session {
   pool: Pool;
   kind: Kind;
-  queue: string[]; // word ids
+  queue: string[]; // word ids (문장 퀴즈는 translation ids)
   index: number;
   correct: number;
   wrong: number;
@@ -40,11 +45,25 @@ export function QuizPage({ goWords }: { goWords: () => void }) {
     [data.wrongWordIds, wordMap],
   );
 
+  const transMap = useMemo(() => new Map(data.translations.map((t) => [t.id, t])), [data.translations]);
+  const relatedSents = useMemo(() => data.translations.filter((t) => t.tags.includes(TAG_RELATED)), [data.translations]);
+
+  function idsFor(p: Pool, k: Kind): string[] {
+    if (k === 'sent') return (p === 'related' ? relatedSents : data.translations).map((t) => t.id);
+    return (p === 'wrong' ? wrongWords : data.words).map((w) => w.id);
+  }
+
   function start(p: Pool = pool, k: Kind = kind) {
-    const source = p === 'wrong' ? wrongWords : data.words;
-    if (!source.length) return;
-    setSession({ pool: p, kind: k, queue: shuffle(source.map((w) => w.id)), index: 0, correct: 0, wrong: 0 });
+    const ids = idsFor(p, k);
+    if (!ids.length) return;
+    setSession({ pool: p, kind: k, queue: shuffle(ids), index: 0, correct: 0, wrong: 0 });
     resetCard();
+  }
+
+  function pickKind(k: Kind) {
+    setKind(k);
+    if (k === 'sent' && pool === 'wrong') setPool('all');
+    if (k !== 'sent' && pool === 'related') setPool('all');
   }
 
   function resetCard() {
@@ -53,14 +72,14 @@ export function QuizPage({ goWords }: { goWords: () => void }) {
     setVerdict(null);
   }
 
-  if (data.words.length === 0) {
+  if (data.words.length === 0 && data.translations.length === 0) {
     return (
       <section>
         <div className="page-head"><h1>퀴즈</h1></div>
         <EmptyState
           title="퀴즈를 낼 단어가 없어요"
           steps={[
-            '먼저 단어장에 단어를 저장해 주세요.',
+            '번역기에서 문장을 번역하면 단어와 추천 회화가 자동으로 저장돼요.',
             '한국어 뜻을 보고 일본어를 맞히는 퀴즈가 무작위로 나와요.',
             '틀린 단어는 기록되어 오답만 다시 풀 수 있어요.',
           ]}
@@ -80,19 +99,28 @@ export function QuizPage({ goWords }: { goWords: () => void }) {
           <div>
             <span className="label">문제 유형</span>
             <div className="seg inline">
-              <button className={kind === 'ko2ja' ? 'on' : ''} onClick={() => setKind('ko2ja')}>뜻 → 일본어 (직접 입력)</button>
-              <button className={kind === 'ja2ko' ? 'on' : ''} onClick={() => setKind('ja2ko')}>일본어 → 뜻 (스스로 채점)</button>
+              <button className={kind === 'ko2ja' ? 'on' : ''} onClick={() => pickKind('ko2ja')}>뜻 → 일본어 (직접 입력)</button>
+              <button className={kind === 'ja2ko' ? 'on' : ''} onClick={() => pickKind('ja2ko')}>일본어 → 뜻 (스스로 채점)</button>
+              <button className={kind === 'sent' ? 'on' : ''} onClick={() => pickKind('sent')}>회화 문장 말하기 (스스로 채점)</button>
             </div>
           </div>
           <div>
             <span className="label">출제 범위</span>
-            <div className="seg inline">
-              <button className={pool === 'all' ? 'on' : ''} onClick={() => setPool('all')}>전체 단어 ({data.words.length})</button>
-              <button className={pool === 'wrong' ? 'on' : ''} onClick={() => setPool('wrong')}>오답만 ({wrongWords.length})</button>
-            </div>
+            {kind === 'sent' ? (
+              <div className="seg inline">
+                <button className={pool === 'all' ? 'on' : ''} onClick={() => setPool('all')}>전체 문장 ({data.translations.length})</button>
+                <button className={pool === 'related' ? 'on' : ''} onClick={() => setPool('related')}>추천 회화만 ({relatedSents.length})</button>
+              </div>
+            ) : (
+              <div className="seg inline">
+                <button className={pool === 'all' ? 'on' : ''} onClick={() => setPool('all')}>전체 단어 ({data.words.length})</button>
+                <button className={pool === 'wrong' ? 'on' : ''} onClick={() => setPool('wrong')}>오답만 ({wrongWords.length})</button>
+              </div>
+            )}
           </div>
           {pool === 'wrong' && wrongWords.length === 0 && <p className="muted">기록된 오답이 없어요. 전체 단어로 먼저 풀어 보세요.</p>}
-          <button className="btn primary big" disabled={pool === 'wrong' && wrongWords.length === 0} onClick={() => start()}>
+          {idsFor(pool, kind).length === 0 && pool !== 'wrong' && <p className="muted">이 범위에는 아직 문제가 없어요. 번역기에서 문장을 먼저 번역해 보세요.</p>}
+          <button className="btn primary big" disabled={idsFor(pool, kind).length === 0} onClick={() => start()}>
             시작하기
           </button>
           <p className="hint">
@@ -112,14 +140,64 @@ export function QuizPage({ goWords }: { goWords: () => void }) {
         <div className="card center">
           <p className="score">{session.correct} / {total}</p>
           <p className="muted">정답 {session.correct}개 · 오답 {session.wrong}개</p>
-          <p>기록된 오답: {wrongWords.length}개</p>
+          {session.kind !== 'sent' && <p>기록된 오답: {wrongWords.length}개</p>}
           <div className="row center">
             <button className="btn primary" onClick={() => start(session.pool, session.kind)}>같은 범위로 다시</button>
-            <button className="btn" disabled={wrongWords.length === 0} onClick={() => { setPool('wrong'); start('wrong', session.kind); }}>
-              오답만 다시 풀기
-            </button>
+            {session.kind !== 'sent' && (
+              <button className="btn" disabled={wrongWords.length === 0} onClick={() => { setPool('wrong'); start('wrong', session.kind); }}>
+                오답만 다시 풀기
+              </button>
+            )}
             <button className="btn" onClick={() => setSession(null)}>설정으로</button>
           </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (session.kind === 'sent') {
+    const t = transMap.get(session.queue[session.index]);
+    if (!t) {
+      queueMicrotask(() => setSession({ ...session, index: session.index + 1 }));
+      return null;
+    }
+    const { ko, ja } = sides(t);
+    const mark = (ok: boolean) => {
+      setVerdict(ok ? 'correct' : 'wrong');
+      setSession({ ...session, correct: session.correct + (ok ? 1 : 0), wrong: session.wrong + (ok ? 0 : 1) });
+    };
+    return (
+      <section>
+        <div className="page-head">
+          <h1>퀴즈 <small>회화 문장</small></h1>
+          <button className="btn" onClick={() => setSession(null)}>그만하기</button>
+        </div>
+        <div className="progress" aria-label={`진행 ${session.index + 1}/${total}`}>
+          <div style={{ width: `${(session.index / total) * 100}%` }} />
+        </div>
+        <p className="count">{session.index + 1} / {total} · 정답 {session.correct} · 오답 {session.wrong}</p>
+        <div className="card quiz">
+          <p className="label">일본어로 말해 보세요 (소리 내거나 적어 본 뒤 답 보기)</p>
+          <p className="q">{ko}</p>
+          {!revealed && <button className="btn primary" onClick={() => setRevealed(true)}>답 보기</button>}
+          {revealed && (
+            <div className={`answer ${verdict ?? ''}`} role="status" aria-live="polite">
+              {verdict && <p className="verdict">{verdict === 'correct' ? '⭕ 좋아요!' : '❌ 다음엔 맞혀 봐요'}</p>}
+              <p className="ja-big" lang="ja">{ja}</p>
+              {t.memo && <p className="memo">{t.memo}</p>}
+            </div>
+          )}
+          {revealed && !verdict && (
+            <div className="row" style={{ marginTop: '0.75rem' }}>
+              <button className="btn primary" onClick={() => mark(true)}>말할 수 있었어요</button>
+              <button className="btn danger" onClick={() => mark(false)}>못 했어요</button>
+            </div>
+          )}
+          {verdict && (
+            <button className="btn primary big" onClick={() => { setSession({ ...session, index: session.index + 1 }); resetCard(); }} autoFocus>
+              {session.index + 1 >= total ? '결과 보기' : '다음 문제'}
+            </button>
+          )}
         </div>
       </section>
     );
